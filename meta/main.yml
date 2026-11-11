@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: MIT
+---
+galaxy_info:
+  role_name: plakar
+  author: TheWolfPaws
+  description: Install Plakar on Debian from its GitHub release package and create encrypted Kloset stores.
+  license: MIT
+  min_ansible_version: "2.18"
+
+  galaxy_tags:
+    - plakar
+    - backup
+    - debian
+    - system
+
+dependencies: []

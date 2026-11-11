@@ -1,0 +1,279 @@
+# SPDX-License-Identifier: MIT
+---
+# tasks file for plakar
+
+- name: Vérifier la définition de la version de Plakar
+  ansible.builtin.assert:
+    that:
+      - plakar_version | trim | length > 0
+    fail_msg: Définissez plakar_version avec une version précise (recommandé) ou « latest ».
+
+- name: Recommander de fixer la version de Plakar
+  ansible.builtin.debug:
+    msg: ATTENTION la configuration récupère la dernière version disponible. Après cette installation définissez explicitement plakar_version.
+  when: plakar_version == "latest"
+
+- name: Récupérer la dernière version de Plakar
+  when: plakar_version == "latest"
+  block:
+    - name: Interroger GitHub
+      ansible.builtin.uri:
+        url: https://api.github.com/repos/PlakarKorp/plakar/releases/latest
+        headers:
+          Accept: application/vnd.github+json
+        return_content: true
+        timeout: 15
+      register: __plakar_latest_release
+      delegate_to: localhost
+      become: false
+
+    - name: Enregistrer la dernière version
+      ansible.builtin.set_fact:
+        plakar_fact_resolved_version: "{{ __plakar_latest_release.json.tag_name | regex_replace('^v', '') }}"
+
+- name: Utiliser la version explicitement demandée
+  ansible.builtin.set_fact:
+    plakar_fact_resolved_version: "{{ plakar_version | regex_replace('^v', '') }}"
+  when: plakar_version != "latest"
+
+- name: Composer le nom du paquet
+  ansible.builtin.set_fact:
+    plakar_fact_deb_name: "plakar_{{ plakar_fact_resolved_version }}_linux_{{ plakar_architecture }}.deb"
+
+- name: Relever les paquets installés
+  ansible.builtin.package_facts:
+    manager: apt
+
+- name: Déterminer si Plakar nécessite une installation
+  ansible.builtin.set_fact:
+    plakar_fact_install_required: >-
+      {{
+        'plakar' not in ansible_facts.packages or
+        (ansible_facts.packages['plakar'][0].version | regex_replace('-[0-9]+$', ''))
+        is version(plakar_fact_resolved_version, '!=')
+      }}
+
+- name: Télécharger le paquet Plakar
+  ansible.builtin.get_url:
+    url: "{{ plakar_release_url }}/download/v{{ plakar_fact_resolved_version }}/{{ plakar_fact_deb_name }}"
+    checksum: "sha256:{{ plakar_release_url }}/download/v{{ plakar_fact_resolved_version }}/plakar_{{ plakar_fact_resolved_version }}_checksums.txt"
+    dest: "{{ plakar_download_dir }}/{{ plakar_fact_deb_name }}"
+    mode: "0644"
+  when: plakar_fact_install_required
+
+- name: Installer le paquet Plakar
+  ansible.builtin.apt:
+    deb: "{{ plakar_download_dir }}/{{ plakar_fact_deb_name }}"
+  when: plakar_fact_install_required
+
+- name: Supprimer le paquet téléchargé
+  ansible.builtin.file:
+    path: "{{ plakar_download_dir }}/{{ plakar_fact_deb_name }}"
+    state: absent
+  when: plakar_fact_install_required
+
+- name: Dernière recommandation
+  ansible.builtin.debug:
+    msg: "Plakar installé en version {{ plakar_fact_resolved_version }} ! Il est vivement recommandé de configurer plakar_version avec ce nombre."
+  when:
+    - plakar_version == "latest"
+    - plakar_fact_install_required
+
+- name: Installer le client SSH
+  ansible.builtin.apt:
+    name: openssh-client
+    cache_valid_time: 3600
+    state: present
+  when: (plakar_generate_ssh_key | bool) or (plakar_known_hosts | length > 0)
+
+- name: Créer le groupe système de Plakar
+  ansible.builtin.group:
+    name: "{{ plakar_group }}"
+    system: true
+
+- name: Créer le compte système de Plakar
+  ansible.builtin.user:
+    name: "{{ plakar_user }}"
+    group: "{{ plakar_group }}"
+    system: true
+    shell: /usr/sbin/nologin
+    home: "{{ plakar_home }}"
+    create_home: true
+    generate_ssh_key: "{{ plakar_generate_ssh_key }}"
+    ssh_key_type: ed25519
+    ssh_key_file: .ssh/id_ed25519
+  register: __plakar_account
+
+- name: Retenir la clé publique SSH du compte
+  ansible.builtin.set_fact:
+    plakar_fact_ssh_public_key: "{{ __plakar_account.ssh_public_key }}"
+  when: plakar_generate_ssh_key | bool
+
+- name: Inscrire les clés d'hôte connues du compte
+  ansible.builtin.known_hosts:
+    path: "{{ plakar_home }}/.ssh/known_hosts"
+    name: "{{ item.name }}"
+    key: "{{ item.key }}"
+  become: true
+  become_user: "{{ plakar_user }}"
+  loop: "{{ plakar_known_hosts }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Terminer le rôle si aucun Kloset n'est déclaré
+  ansible.builtin.meta: end_role
+  when: plakar_klosets | length == 0
+
+- name: Vérifier les entrées de plakar_klosets
+  ansible.builtin.assert:
+    that:
+      - plakar_klosets | rejectattr('path', 'defined') | list | length == 0
+      - plakar_klosets | rejectattr('passphrase', 'defined') | list | length == 0
+      - plakar_klosets | selectattr('path', 'equalto', '') | list | length == 0
+      - plakar_klosets | selectattr('passphrase', 'equalto', '') | list | length == 0
+    fail_msg: Chaque entrée de plakar_klosets doit définir path et passphrase, non vides.
+    quiet: true
+
+- name: Créer le dossier des fichiers de clé
+  ansible.builtin.file:
+    path: "{{ plakar_keyfile_dir }}"
+    state: directory
+    owner: "{{ plakar_user }}"
+    group: "{{ plakar_group }}"
+    mode: "0700"
+
+- name: Composer la liste des Klosets sans leur phrase secrète
+  ansible.builtin.set_fact:
+    plakar_fact_klosets: >-
+      {{ plakar_klosets | map('dict2items')
+         | map('rejectattr', 'key', 'equalto', 'passphrase')
+         | map('items2dict') | list }}
+
+- name: Écrire le fichier de clé de chaque Kloset
+  ansible.builtin.copy:
+    content: "{{ item.passphrase }}\n"
+    dest: "{{ plakar_keyfile_dir }}/{{ item.name | default(item.path | basename) }}.key"
+    owner: "{{ plakar_user }}"
+    group: "{{ plakar_group }}"
+    mode: "0600"
+  loop: "{{ plakar_klosets }}"
+  loop_control:
+    label: "{{ item.name | default(item.path | basename) }}"
+  no_log: true
+
+- name: Relever les dossiers parents des Klosets
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop: "{{ plakar_fact_klosets | map(attribute='path') | map('dirname') | unique | list }}"
+  register: __plakar_parent_dirs
+
+- name: Créer les dossiers parents absents
+  ansible.builtin.file:
+    path: "{{ item.item }}"
+    state: directory
+    owner: "{{ plakar_user }}"
+    group: "{{ plakar_group }}"
+    mode: "0750"
+  loop: "{{ __plakar_parent_dirs.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not item.stat.exists
+
+- name: Créer chaque Kloset
+  ansible.builtin.command:
+    argv:
+      - plakar
+      - -keyfile
+      - "{{ plakar_keyfile_dir }}/{{ item.name | default(item.path | basename) }}.key"
+      - at
+      - "{{ item.path }}"
+      - create
+    creates: "{{ item.path }}/CONFIG"
+  become: true
+  become_user: "{{ plakar_user }}"
+  loop: "{{ plakar_fact_klosets }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Poser les unités systemd de Plakar
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "/etc/systemd/system/{{ item }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop:
+    - plakar-failure@.service
+    - plakar-backup.service
+    - plakar-backup.timer
+    - plakar-check.service
+    - plakar-check.timer
+  register: __plakar_units
+
+- name: Recharger systemd après un changement d'unité
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: __plakar_units is changed
+
+- name: Activer les minuteurs de Plakar
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - plakar-backup.timer
+    - plakar-check.timer
+
+- name: Connecter le compte à plakar.io et installer les greffons
+  become: true
+  become_user: "{{ plakar_user }}"
+  block:
+    - name: Relever l'état de connexion du compte à plakar.io
+      ansible.builtin.command:
+        argv:
+          - plakar
+          - login
+          - -status
+      register: __plakar_login_status
+      changed_when: false
+      when: plakar_token | length > 0
+
+    - name: Connecter le compte à plakar.io par jeton
+      ansible.builtin.command:
+        argv:
+          - plakar
+          - login
+          - -env
+      environment:
+        PLAKAR_TOKEN: "{{ plakar_token }}"
+      changed_when: true
+      no_log: true
+      when:
+        - plakar_token | length > 0
+        - __plakar_login_status.stdout | trim != "logged in"
+
+    - name: Relever les greffons installés
+      ansible.builtin.command:
+        argv:
+          - plakar
+          - pkg
+          - show
+      register: __plakar_plugins_installed
+      changed_when: false
+      when: plakar_plugins | length > 0
+
+    - name: Installer les greffons absents
+      ansible.builtin.command:
+        argv:
+          - plakar
+          - pkg
+          - add
+          - "{{ item.name }}{{ ('@' ~ item.version) if item.version is defined else '' }}"
+      changed_when: true
+      loop: "{{ plakar_plugins }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: >-
+        __plakar_plugins_installed.stdout_lines
+        | select('match', (item.name | regex_escape) ~ '@')
+        | list | length == 0

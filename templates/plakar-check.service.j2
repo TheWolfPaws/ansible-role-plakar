@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Vérification des Klosets Plakar
+OnFailure=plakar-failure@%N.service
+
+[Service]
+Type=oneshot
+User={{ plakar_user }}
+Group={{ plakar_group }}
+{% for kloset in plakar_fact_klosets %}
+{% set name = kloset.name | default(kloset.path | basename) %}
+LoadCredential={{ name }}.key:{{ plakar_keyfile_dir }}/{{ name }}.key
+ExecStart=plakar -keyfile %d/{{ name }}.key at {{ kloset.path }} check
+{% endfor %}

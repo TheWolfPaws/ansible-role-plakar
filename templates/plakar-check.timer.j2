@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Minuteur de la vérification des Klosets Plakar
+
+[Timer]
+OnCalendar={{ plakar_check_schedule }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

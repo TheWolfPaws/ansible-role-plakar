@@ -1,0 +1,7 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Signalement d'un échec Plakar (%i)
+
+[Service]
+Type=oneshot
+ExecStart=logger -p daemon.crit -t plakar "PLAKAR ECHEC %i"

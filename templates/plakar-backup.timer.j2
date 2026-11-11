@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Minuteur de la sauvegarde Plakar
+
+[Timer]
+OnCalendar={{ plakar_backup_schedule }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target
