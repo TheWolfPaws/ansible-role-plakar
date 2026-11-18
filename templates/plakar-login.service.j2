@@ -6,5 +6,5 @@ Description=Connexion du compte Plakar à plakar.io
 Type=oneshot
 User={{ plakar_user }}
 Group={{ plakar_group }}
-EnvironmentFile={{ plakar_keyfile_dir }}/plakar-token.env
+EnvironmentFile=/etc/credstore/plakar-token.env
 ExecStart=plakar login -env

@@ -150,7 +150,7 @@
 
 - name: Créer le dossier des fichiers de clé
   ansible.builtin.file:
-    path: "{{ plakar_keyfile_dir }}"
+    path: "/etc/credstore"
     state: directory
     owner: root
     group: root
@@ -166,7 +166,7 @@
 - name: Écrire le fichier de clé de chaque Kloset
   ansible.builtin.copy:
     content: "{{ item.passphrase }}\n"
-    dest: "{{ plakar_keyfile_dir }}/{{ item.name }}.key"
+    dest: "/etc/credstore/{{ item.name }}.key"
     owner: root
     group: root
     mode: "0600"
@@ -239,7 +239,7 @@
 - name: Écrire le fichier du jeton plakar.io
   ansible.builtin.copy:
     content: "PLAKAR_TOKEN='{{ plakar_token }}'\n"
-    dest: "{{ plakar_keyfile_dir }}/plakar-token.env"
+    dest: "/etc/credstore/plakar-token.env"
     owner: root
     group: root
     mode: "0600"

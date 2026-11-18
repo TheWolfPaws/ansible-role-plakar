@@ -7,5 +7,5 @@ OnFailure=plakar-failure@%p-%i.service
 Type=oneshot
 User={{ plakar_user }}
 Group={{ plakar_group }}
-LoadCredential=kloset.key:{{ plakar_keyfile_dir }}/%i.key
+LoadCredential=kloset.key:/etc/credstore/%i.key
 ExecStart=plakar -keyfile %d/kloset.key at @%i check

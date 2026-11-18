@@ -7,7 +7,6 @@ plakar_architecture: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['
 plakar_download_dir: "/tmp"
 plakar_klosets: []
 plakar_sources: []
-plakar_keyfile_dir: "/etc/credstore"
 plakar_user: "plakar"
 plakar_group: "plakar"
 plakar_home: "/var/lib/plakar"

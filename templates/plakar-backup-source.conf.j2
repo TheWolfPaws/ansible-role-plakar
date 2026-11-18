@@ -1,4 +1,4 @@
 # {{ ansible_managed }}
 [Service]
 Environment=KLOSET_NAME={{ item.kloset }}
-LoadCredential=kloset.key:{{ plakar_keyfile_dir }}/{{ item.kloset }}.key
+LoadCredential=kloset.key:/etc/credstore/{{ item.kloset }}.key
