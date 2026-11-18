@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Connexion du compte Plakar à plakar.io
+
+[Service]
+Type=oneshot
+User={{ plakar_user }}
+Group={{ plakar_group }}
+EnvironmentFile={{ plakar_keyfile_dir }}/plakar-token.env
+ExecStart=plakar login -env

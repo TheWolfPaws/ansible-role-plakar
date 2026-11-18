@@ -127,19 +127,33 @@
 - name: Vérifier les entrées de plakar_klosets
   ansible.builtin.assert:
     that:
+      - plakar_klosets | rejectattr('name', 'defined') | list | length == 0
       - plakar_klosets | rejectattr('path', 'defined') | list | length == 0
       - plakar_klosets | rejectattr('passphrase', 'defined') | list | length == 0
+      - plakar_klosets | selectattr('name', 'equalto', '') | list | length == 0
       - plakar_klosets | selectattr('path', 'equalto', '') | list | length == 0
       - plakar_klosets | selectattr('passphrase', 'equalto', '') | list | length == 0
-    fail_msg: Chaque entrée de plakar_klosets doit définir path et passphrase, non vides.
+      - plakar_klosets | map(attribute='name') | unique | list | length == plakar_klosets | length
+    fail_msg: Chaque entrée de plakar_klosets doit définir name, path et passphrase, non vides, et name doit être unique.
+    quiet: true
+
+- name: Vérifier les entrées de plakar_sources
+  ansible.builtin.assert:
+    that:
+      - plakar_sources | rejectattr('name', 'defined') | list | length == 0
+      - plakar_sources | rejectattr('location', 'defined') | list | length == 0
+      - plakar_sources | rejectattr('kloset', 'defined') | list | length == 0
+      - plakar_sources | rejectattr('kloset', 'in', plakar_klosets | map(attribute='name') | list) | list | length == 0
+      - plakar_sources | map(attribute='name') | unique | list | length == plakar_sources | length
+    fail_msg: Chaque entrée de plakar_sources doit définir name (unique), location et kloset, ce dernier déclaré dans plakar_klosets.
     quiet: true
 
 - name: Créer le dossier des fichiers de clé
   ansible.builtin.file:
     path: "{{ plakar_keyfile_dir }}"
     state: directory
-    owner: "{{ plakar_user }}"
-    group: "{{ plakar_group }}"
+    owner: root
+    group: root
     mode: "0700"
 
 - name: Composer la liste des Klosets sans leur phrase secrète
@@ -152,13 +166,13 @@
 - name: Écrire le fichier de clé de chaque Kloset
   ansible.builtin.copy:
     content: "{{ item.passphrase }}\n"
-    dest: "{{ plakar_keyfile_dir }}/{{ item.name | default(item.path | basename) }}.key"
-    owner: "{{ plakar_user }}"
-    group: "{{ plakar_group }}"
+    dest: "{{ plakar_keyfile_dir }}/{{ item.name }}.key"
+    owner: root
+    group: root
     mode: "0600"
   loop: "{{ plakar_klosets }}"
   loop_control:
-    label: "{{ item.name | default(item.path | basename) }}"
+    label: "{{ item.name }}"
   no_log: true
 
 - name: Relever les dossiers parents des Klosets
@@ -179,21 +193,93 @@
     label: "{{ item.item }}"
   when: not item.stat.exists
 
-- name: Créer chaque Kloset
-  ansible.builtin.command:
-    argv:
-      - plakar
-      - -keyfile
-      - "{{ plakar_keyfile_dir }}/{{ item.name | default(item.path | basename) }}.key"
-      - at
-      - "{{ item.path }}"
-      - create
-    creates: "{{ item.path }}/CONFIG"
-  become: true
-  become_user: "{{ plakar_user }}"
+- name: Créer le dossier de configuration de Plakar
+  ansible.builtin.file:
+    path: "{{ plakar_config_dir }}"
+    state: directory
+    owner: "{{ plakar_user }}"
+    group: "{{ plakar_group }}"
+    mode: "0700"
+
+- name: Écrire la liste des Klosets et la liste des sources
+  ansible.builtin.template:
+    src: "{{ item }}.j2"
+    dest: "{{ plakar_config_dir }}/{{ item }}"
+    owner: "{{ plakar_user }}"
+    group: "{{ plakar_group }}"
+    mode: "0600"
+  loop:
+    - stores.yml
+    - sources.yml
+
+# Sans ce fichier, Plakar réécrit les deux autres à vide à sa première lecture.
+- name: Écrire la liste des destinations si elle est absente
+  ansible.builtin.copy:
+    content: "version: v1.0.0\ndestinations: {}\n"
+    dest: "{{ plakar_config_dir }}/destinations.yml"
+    owner: "{{ plakar_user }}"
+    group: "{{ plakar_group }}"
+    mode: "0600"
+    force: false
+
+- name: Relever les Klosets déjà créés
+  ansible.builtin.stat:
+    path: "{{ item.path }}/CONFIG"
   loop: "{{ plakar_fact_klosets }}"
   loop_control:
-    label: "{{ item.path }}"
+    label: "{{ item.name }}"
+  register: __plakar_kloset_configs
+
+- name: Composer la liste des Klosets à créer
+  ansible.builtin.set_fact:
+    plakar_fact_klosets_to_create: >-
+      {{ __plakar_kloset_configs.results | rejectattr('stat.exists')
+         | map(attribute='item.name') | list }}
+
+- name: Écrire le fichier du jeton plakar.io
+  ansible.builtin.copy:
+    content: "PLAKAR_TOKEN='{{ plakar_token }}'\n"
+    dest: "{{ plakar_keyfile_dir }}/plakar-token.env"
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  when: plakar_token | length > 0
+
+- name: Créer le dossier des fichiers d'exclusions
+  ansible.builtin.file:
+    path: "{{ plakar_ignore_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Écrire le fichier d'exclusions de chaque source
+  ansible.builtin.template:
+    src: plakar-source.ignore.j2
+    dest: "{{ plakar_ignore_dir }}/{{ item.name }}.ignore"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ plakar_sources }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Créer le dossier des scripts de Plakar
+  ansible.builtin.file:
+    path: "{{ plakar_libexec_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Poser le script de lecture des erreurs d'une sauvegarde
+  ansible.builtin.copy:
+    src: plakar-backup-errors
+    dest: "{{ plakar_libexec_dir }}/plakar-backup-errors"
+    owner: root
+    group: root
+    mode: "0755"
 
 - name: Poser les unités systemd de Plakar
   ansible.builtin.template:
@@ -204,16 +290,93 @@
     mode: "0644"
   loop:
     - plakar-failure@.service
+    - plakar-backup@.service
     - plakar-backup.service
     - plakar-backup.timer
+    - plakar-check@.service
     - plakar-check.service
     - plakar-check.timer
+    - plakar-create@.service
+    - plakar-login.service
   register: __plakar_units
+
+- name: Créer le dossier de complément de chaque source
+  ansible.builtin.file:
+    path: "/etc/systemd/system/plakar-backup@{{ item.name }}.service.d"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ plakar_sources }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Rattacher chaque source à son Kloset
+  ansible.builtin.template:
+    src: plakar-backup-source.conf.j2
+    dest: "/etc/systemd/system/plakar-backup@{{ item.name }}.service.d/kloset.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ plakar_sources }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: __plakar_source_dropins
+
+- name: Relever les compléments d'unité des sources
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: "plakar-backup@*.service.d"
+    file_type: directory
+  register: __plakar_found_dropins
+
+- name: Relever les fichiers d'exclusions
+  ansible.builtin.find:
+    paths: "{{ plakar_ignore_dir }}"
+    patterns: "*.ignore"
+  register: __plakar_found_ignores
+
+- name: Composer la liste des sources retirées de l'inventaire
+  ansible.builtin.set_fact:
+    plakar_fact_removed_sources: >-
+      {{ (__plakar_found_dropins.files | map(attribute='path') | map('basename')
+          | map('replace', 'plakar-backup@', '') | map('replace', '.service.d', '') | list
+          + __plakar_found_ignores.files | map(attribute='path') | map('basename')
+          | map('replace', '.ignore', '') | list)
+         | unique | difference(plakar_sources | map(attribute='name') | list) }}
+
+- name: Arrêter la sauvegarde des sources retirées
+  ansible.builtin.systemd_service:
+    name: "plakar-backup@{{ item }}.service"
+    state: stopped
+  loop: "{{ plakar_fact_removed_sources }}"
+
+- name: Supprimer le complément d'unité des sources retirées
+  ansible.builtin.file:
+    path: "/etc/systemd/system/plakar-backup@{{ item }}.service.d"
+    state: absent
+  loop: "{{ plakar_fact_removed_sources }}"
+  register: __plakar_removed_dropins
+
+- name: Supprimer le fichier d'exclusions des sources retirées
+  ansible.builtin.file:
+    path: "{{ plakar_ignore_dir }}/{{ item }}.ignore"
+    state: absent
+  loop: "{{ plakar_fact_removed_sources }}"
 
 - name: Recharger systemd après un changement d'unité
   ansible.builtin.systemd_service:
     daemon_reload: true
-  when: __plakar_units is changed
+  when: >-
+    __plakar_units is changed
+    or __plakar_source_dropins is changed
+    or __plakar_removed_dropins is changed
+
+- name: Créer chaque Kloset absent
+  ansible.builtin.systemd_service:
+    name: "plakar-create@{{ item }}.service"
+    state: started
+  loop: "{{ plakar_fact_klosets_to_create }}"
 
 - name: Activer les minuteurs de Plakar
   ansible.builtin.systemd_service:
@@ -239,15 +402,10 @@
       when: plakar_token | length > 0
 
     - name: Connecter le compte à plakar.io par jeton
-      ansible.builtin.command:
-        argv:
-          - plakar
-          - login
-          - -env
-      environment:
-        PLAKAR_TOKEN: "{{ plakar_token }}"
-      changed_when: true
-      no_log: true
+      ansible.builtin.systemd_service:
+        name: plakar-login.service
+        state: started
+      become_user: root
       when:
         - plakar_token | length > 0
         - __plakar_login_status.stdout | trim != "logged in"

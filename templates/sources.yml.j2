@@ -1,0 +1,6 @@
+version: v1.0.0
+sources:{{ ' {}' if plakar_sources | length == 0 else '' }}
+{% for source in plakar_sources %}
+    {{ source.name }}:
+        location: {{ source.location }}
+{% endfor %}

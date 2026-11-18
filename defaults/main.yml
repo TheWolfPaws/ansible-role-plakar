@@ -6,10 +6,14 @@ plakar_release_url: "https://github.com/PlakarKorp/plakar/releases"
 plakar_architecture: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_facts['architecture']] }}"
 plakar_download_dir: "/tmp"
 plakar_klosets: []
-plakar_keyfile_dir: "/etc/plakar"
+plakar_sources: []
+plakar_keyfile_dir: "/etc/credstore"
 plakar_user: "plakar"
 plakar_group: "plakar"
 plakar_home: "/var/lib/plakar"
+plakar_config_dir: "{{ plakar_home }}/.config/plakar"
+plakar_ignore_dir: "/etc/plakar/ignore"
+plakar_libexec_dir: "/usr/local/libexec/plakar"
 plakar_generate_ssh_key: false
 plakar_known_hosts: []
 plakar_token: ""

@@ -1,0 +1,19 @@
+#!/bin/sh
+# Lit le nombre d'erreurs du dernier instantané d'une source et lève l'alerte s'il n'est pas nul.
+# Usage : plakar-backup-errors <fichier de clé> <Kloset> <source> <nom de l'alerte>
+set -eu
+keyfile="$1"
+kloset="$2"
+source="$3"
+alert="$4"
+
+snapshot=$(plakar -keyfile "$keyfile" at "@$kloset" ls -uuid -job "$source" -latest | awk 'NR == 1 { print $2 }')
+errors=""
+if [ -n "$snapshot" ]; then
+    errors=$(plakar -keyfile "$keyfile" at "@$kloset" info "$snapshot" | awk '$1 == "-" && $2 == "Errors:" { n = $3 } END { print n }')
+fi
+
+if [ "$errors" != "0" ]; then
+    logger -p daemon.crit -t plakar "PLAKAR ECHEC $alert erreurs=${errors:-inconnu}"
+    exit 1
+fi

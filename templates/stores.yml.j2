@@ -1,0 +1,6 @@
+version: v1.0.0
+stores:
+{% for kloset in plakar_fact_klosets %}
+    {{ kloset.name }}:
+        location: {{ kloset.path }}
+{% endfor %}

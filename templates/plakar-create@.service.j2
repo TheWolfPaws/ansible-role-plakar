@@ -1,0 +1,10 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Création du Kloset Plakar %i
+
+[Service]
+Type=oneshot
+User={{ plakar_user }}
+Group={{ plakar_group }}
+LoadCredential=kloset.key:{{ plakar_keyfile_dir }}/%i.key
+ExecStart=plakar -keyfile %d/kloset.key at @%i create
