@@ -22,11 +22,21 @@ Role Variables
 | `plakar_release_url` | `https://github.com/PlakarKorp/plakar/releases` | Base URL of the releases. Change it to use a mirror. |
 | `plakar_architecture` | derived from `ansible_facts['architecture']` | Architecture suffix of the package (`amd64`, `arm64`). Fails on an unmapped architecture. |
 | `plakar_download_dir` | `/tmp` | Where the package is downloaded before installation. It is deleted afterwards. |
-| `plakar_user` | `plakar` | System account that owns the key files and the stores, and runs Plakar. Created by the role, no login shell. |
+| `plakar_user` | `plakar` | System account that owns the stores and runs Plakar. Created by the role, no login shell. It cannot read the key files. |
 | `plakar_group` | `plakar` | Primary group of that account. |
-| `plakar_home` | `/var/lib/plakar` | Home of that account; Plakar keeps its configuration and cache there. |
-| `plakar_keyfile_dir` | `/etc/plakar` | Directory holding the key files, owned by `plakar_user`, created `0700`. |
-| `plakar_klosets` | `[]` | Kloset stores to create. Each entry is a dict with `path`, `passphrase` and optionally `name`. Empty: the role ends after installation. |
+| `plakar_home` | `/var/lib/plakar` | Home of that account; Plakar keeps its cache there. |
+| `plakar_config_dir` | `{{ plakar_home }}/.config/plakar` | Plakar configuration of that account. The role writes `stores.yml` and `sources.yml` from `plakar_klosets` and `plakar_sources`, and creates an empty `destinations.yml` when it is missing. |
+| `plakar_keyfile_dir` | `/etc/credstore` | Directory holding one key file per store, `<name>.key`, owned by root, `0700`. The units receive the key through `LoadCredential=`. |
+| `plakar_klosets` | `[]` | Kloset stores to create and declare. Each entry is a dict with `name` (unique), `path` and `passphrase`, for example `{name: main, path: /var/lib/plakar/store, passphrase: "{{ vault_main_passphrase }}"}`. One check unit per store. Empty: the role ends after installation. |
+| `plakar_sources` | `[]` | Sources to declare and back up. Each entry is a dict with `name` (unique), `location`, `kloset` (a `name` from `plakar_klosets`) and optionally `ignore`, a list of gitignore patterns, for example `{name: web, location: "sftp://backup@host.example/srv", kloset: main, ignore: ["cache/"]}`. One backup unit per source. A source removed from the list loses its units and files; its snapshots stay. |
+| `plakar_ignore_dir` | `/etc/plakar/ignore` | One exclusion file per source, `<name>.ignore`, passed to `plakar backup -ignore-file`. |
+| `plakar_libexec_dir` | `/usr/local/libexec/plakar` | Holds the script that reads the error count of the last snapshot after each backup. |
+| `plakar_generate_ssh_key` | `false` | Generate an ed25519 key for the account; the role then sets `plakar_fact_ssh_public_key`. |
+| `plakar_known_hosts` | `[]` | Host keys to trust, as a list of `{name, key}` dicts for the `known_hosts` module, for example `{name: host.example, key: "host.example ssh-ed25519 AAAA..."}`. |
+| `plakar_token` | `""` | plakar.io token; when set, the account logs in with `plakar login -env`. |
+| `plakar_plugins` | `[]` | Plugins to install with `plakar pkg add`, as `{name, version}` dicts, `version` optional, for example `{name: sftp}`. |
+| `plakar_backup_schedule` | `daily` | `OnCalendar=` of `plakar-backup.timer`, which starts the backup of every source. |
+| `plakar_check_schedule` | `weekly` | `OnCalendar=` of `plakar-check.timer`, which starts the check of every store. |
 
 Dependencies
 ------------
@@ -47,8 +57,13 @@ Example Playbook
       vars:
         plakar_version: "1.1.8"
         plakar_klosets:
-          - path: /var/lib/plakar/store
+          - name: main
+            path: /var/lib/plakar/store
             passphrase: "{{ vault_plakar_store_passphrase }}"
+        plakar_sources:
+          - name: web
+            location: "sftp://backup@host.example/srv"
+            kloset: main
 ```
 
 The passphrase is the only way to read the store: keep a copy outside the managed host and the control node.
