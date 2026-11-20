@@ -328,7 +328,7 @@
 - name: Relever les compléments d'unité des sources
   ansible.builtin.find:
     paths: /etc/systemd/system
-    patterns: "plakar-backup@*.service.d"
+    patterns: "plakar-backup@?*.service.d"
     file_type: directory
   register: __plakar_found_dropins
 
