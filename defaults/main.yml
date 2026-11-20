@@ -9,6 +9,8 @@ plakar_klosets: []
 plakar_sources: []
 plakar_user: "plakar"
 plakar_group: "plakar"
+plakar_uid: null
+plakar_gid: null
 plakar_home: "/var/lib/plakar"
 plakar_config_dir: "{{ plakar_home }}/.config/plakar"
 plakar_ignore_dir: "/etc/plakar/ignore"

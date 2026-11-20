@@ -89,11 +89,13 @@
 - name: Créer le groupe système de Plakar
   ansible.builtin.group:
     name: "{{ plakar_group }}"
+    gid: "{{ plakar_gid if plakar_gid is not none else omit }}"
     system: true
 
 - name: Créer le compte système de Plakar
   ansible.builtin.user:
     name: "{{ plakar_user }}"
+    uid: "{{ plakar_uid if plakar_uid is not none else omit }}"
     group: "{{ plakar_group }}"
     system: true
     shell: /usr/sbin/nologin

@@ -24,6 +24,8 @@ Role Variables
 | `plakar_download_dir` | `/tmp` | Where the package is downloaded before installation. It is deleted afterwards. |
 | `plakar_user` | `plakar` | System account that owns the stores and runs Plakar. Created by the role, no login shell. It cannot read the key files. |
 | `plakar_group` | `plakar` | Primary group of that account. |
+| `plakar_uid` | `null` | User ID given to that account when the role creates it. Empty: the system picks it. |
+| `plakar_gid` | `null` | Group ID given to that group when the role creates it. Empty: the system picks it. |
 | `plakar_home` | `/var/lib/plakar` | Home of that account; Plakar keeps its cache there. |
 | `plakar_config_dir` | `{{ plakar_home }}/.config/plakar` | Plakar configuration of that account. The role writes `stores.yml` and `sources.yml` from `plakar_klosets` and `plakar_sources`, and creates an empty `destinations.yml` when it is missing. |
 | `plakar_klosets` | `[]` | Kloset stores to create and declare. Each entry is a dict with `name` (unique), `path` and `passphrase`, for example `{name: main, path: /var/lib/plakar/store, passphrase: "{{ vault_main_passphrase }}"}`. Its key file is `/etc/credstore/<name>.key`, owned by root, `0600`, passed to the units through `LoadCredential=`. One check unit per store. Empty: the role ends after installation. |
