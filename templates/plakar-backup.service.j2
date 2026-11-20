@@ -5,6 +5,9 @@ Description=Sauvegarde Plakar de chaque source
 Wants=plakar-backup@{{ source.name }}.service
 After=plakar-backup@{{ source.name }}.service
 {% endfor %}
+{% for kloset in plakar_fact_klosets_to_sync %}
+Wants=plakar-sync@{{ kloset.name }}.service
+{% endfor %}
 
 [Service]
 Type=oneshot

@@ -1,0 +1,17 @@
+# {{ ansible_managed }}
+[Unit]
+Description=Copie Plakar du Kloset %i vers ses Klosets distants
+After=plakar-backup.service
+OnFailure=plakar-failure@%p-%i.service
+
+[Service]
+Type=oneshot
+User={{ plakar_user }}
+Group={{ plakar_group }}
+LoadCredential=kloset.key:/etc/credstore/%i.key
+{% for remote in item.sync_to %}
+LoadCredential={{ remote }}.key:/etc/credstore/{{ remote }}.key
+{% endfor %}
+{% for remote in item.sync_to %}
+ExecStart=plakar -keyfile %d/kloset.key at @%i sync to @{{ remote }}
+{% endfor %}

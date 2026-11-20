@@ -28,7 +28,7 @@ Role Variables
 | `plakar_gid` | `null` | Group ID given to that group when the role creates it. Empty: the system picks it. |
 | `plakar_home` | `/var/lib/plakar` | Home of that account; Plakar keeps its cache there. |
 | `plakar_config_dir` | `{{ plakar_home }}/.config/plakar` | Plakar configuration of that account. The role writes `stores.yml` and `sources.yml` from `plakar_klosets` and `plakar_sources`, and creates an empty `destinations.yml` when it is missing. |
-| `plakar_klosets` | `[]` | Kloset stores to create and declare. Each entry is a dict with `name` (unique), `path` and `passphrase`, for example `{name: main, path: /var/lib/plakar/store, passphrase: "{{ vault_main_passphrase }}"}`. Its key file is `/etc/credstore/<name>.key`, owned by root, `0600`, passed to the units through `LoadCredential=`. One check unit per store. Empty: the role ends after installation. |
+| `plakar_klosets` | `[]` | Kloset stores to create and declare. Each entry is a dict with `name` (unique), `path` and `passphrase`, for example `{name: main, path: /var/lib/plakar/store, passphrase: "{{ vault_main_passphrase }}"}`. Its key file is `/etc/credstore/<name>.key`, owned by root, `0600`, passed to the units through `LoadCredential=`. One check unit per store. A remote store sets `location` instead of `path` (for example `s3://host.example/bucket`) and optionally `options`, a dict written as is into its `stores.yml` entry (the plugin options, keys included); its plugin goes in `plakar_plugins`. The creation unit skips `create` when `plakar info` already opens the store; the role then marks the store with `/etc/credstore/<name>.created`, and its `stores.yml` entry reads the passphrase through `passphrase_cmd` from the credentials directory of the copy unit. A local store may set `sync_to`, a list of remote store names: `plakar-sync@<name>.service` then runs `plakar at @<name> sync to @<remote>` for each one after `plakar-backup.service`. Empty: the role ends after installation. |
 | `plakar_sources` | `[]` | Sources to declare and back up. Each entry is a dict with `name` (unique), `location`, `kloset` (a `name` from `plakar_klosets`) and optionally `ignore`, a list of gitignore patterns, for example `{name: web, location: "sftp://backup@host.example/srv", kloset: main, ignore: ["cache/"]}`. One backup unit per source. A source removed from the list loses its units and files; its snapshots stay. |
 | `plakar_ignore_dir` | `/etc/plakar/ignore` | One exclusion file per source, `<name>.ignore`, passed to `plakar backup -ignore-file`. |
 | `plakar_libexec_dir` | `/usr/local/libexec/plakar` | Holds the script that reads the error count of the last snapshot after each backup. |
@@ -61,13 +61,24 @@ Example Playbook
           - name: main
             path: /var/lib/plakar/store
             passphrase: "{{ vault_plakar_store_passphrase }}"
+            sync_to:
+              - offsite
+          - name: offsite
+            location: "s3://s3.example.com/bucket"
+            options:
+              access_key: "{{ vault_plakar_offsite_access_key }}"
+              secret_access_key: "{{ vault_plakar_offsite_secret_key }}"
+              region: example-region-1
+            passphrase: "{{ vault_plakar_offsite_passphrase }}"
+        plakar_plugins:
+          - name: s3
         plakar_sources:
           - name: web
             location: "sftp://backup@host.example/srv"
             kloset: main
 ```
 
-The passphrase is the only way to read the store: keep a copy outside the managed host and the control node.
+The passphrase is the only way to read the store: keep a copy outside the managed host and the control node. The `options` of a remote store are readable by the Plakar account through `stores.yml`.
 
 License
 -------

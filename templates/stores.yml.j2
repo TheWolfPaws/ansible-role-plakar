@@ -2,5 +2,11 @@ version: v1.0.0
 stores:
 {% for kloset in plakar_fact_klosets %}
     {{ kloset.name }}:
-        location: {{ kloset.path }}
+        location: {{ kloset.path if kloset.path is defined else kloset.location }}
+{% if kloset.location is defined %}
+        passphrase_cmd: 'cat "$CREDENTIALS_DIRECTORY/{{ kloset.name }}.key"'
+{% for key, value in kloset.options | default({}) | dictsort %}
+        {{ key }}: {{ value | string | to_json }}
+{% endfor %}
+{% endif %}
 {% endfor %}

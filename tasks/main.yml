@@ -130,13 +130,13 @@
   ansible.builtin.assert:
     that:
       - plakar_klosets | rejectattr('name', 'defined') | list | length == 0
-      - plakar_klosets | rejectattr('path', 'defined') | list | length == 0
+      - plakar_klosets | rejectattr('path', 'defined') | rejectattr('location', 'defined') | list | length == 0
       - plakar_klosets | rejectattr('passphrase', 'defined') | list | length == 0
       - plakar_klosets | selectattr('name', 'equalto', '') | list | length == 0
-      - plakar_klosets | selectattr('path', 'equalto', '') | list | length == 0
+      - plakar_klosets | selectattr('path', 'defined') | selectattr('path', 'equalto', '') | list | length == 0
       - plakar_klosets | selectattr('passphrase', 'equalto', '') | list | length == 0
       - plakar_klosets | map(attribute='name') | unique | list | length == plakar_klosets | length
-    fail_msg: Chaque entrée de plakar_klosets doit définir name, path et passphrase, non vides, et name doit être unique.
+    fail_msg: Chaque entrée de plakar_klosets doit définir name, path ou location, et passphrase, non vides, et name doit être unique.
     quiet: true
 
 - name: Vérifier les entrées de plakar_sources
@@ -180,7 +180,7 @@
 - name: Relever les dossiers parents des Klosets
   ansible.builtin.stat:
     path: "{{ item }}"
-  loop: "{{ plakar_fact_klosets | map(attribute='path') | map('dirname') | unique | list }}"
+  loop: "{{ plakar_fact_klosets | selectattr('path', 'defined') | map(attribute='path') | map('dirname') | unique | list }}"
   register: __plakar_parent_dirs
 
 - name: Créer les dossiers parents absents
@@ -213,6 +213,7 @@
   loop:
     - stores.yml
     - sources.yml
+  no_log: true
 
 # Sans ce fichier, Plakar réécrit les deux autres à vide à sa première lecture.
 - name: Écrire la liste des destinations si elle est absente
@@ -226,7 +227,7 @@
 
 - name: Relever les Klosets déjà créés
   ansible.builtin.stat:
-    path: "{{ item.path }}/CONFIG"
+    path: "{{ (item.path ~ '/CONFIG') if item.path is defined else ('/etc/credstore/' ~ item.name ~ '.created') }}"
   loop: "{{ plakar_fact_klosets }}"
   loop_control:
     label: "{{ item.name }}"
@@ -237,6 +238,10 @@
     plakar_fact_klosets_to_create: >-
       {{ __plakar_kloset_configs.results | rejectattr('stat.exists')
          | map(attribute='item.name') | list }}
+
+- name: Composer la liste des Klosets locaux copiés vers un Kloset distant
+  ansible.builtin.set_fact:
+    plakar_fact_klosets_to_sync: "{{ plakar_fact_klosets | selectattr('sync_to', 'defined') | selectattr('sync_to') | list }}"
 
 - name: Écrire le fichier du jeton plakar.io
   ansible.builtin.copy:
@@ -301,6 +306,18 @@
     - plakar-create@.service
     - plakar-login.service
   register: __plakar_units
+
+- name: Poser l'unité de copie de chaque Kloset local vers ses Klosets distants
+  ansible.builtin.template:
+    src: plakar-sync.service.j2
+    dest: "/etc/systemd/system/plakar-sync@{{ item.name }}.service"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ plakar_fact_klosets_to_sync }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: __plakar_sync_units
 
 - name: Créer le dossier de complément de chaque source
   ansible.builtin.file:
@@ -371,24 +388,11 @@
     daemon_reload: true
   when: >-
     __plakar_units is changed
+    or __plakar_sync_units is changed
     or __plakar_source_dropins is changed
     or __plakar_removed_dropins is changed
 
-- name: Créer chaque Kloset absent
-  ansible.builtin.systemd_service:
-    name: "plakar-create@{{ item }}.service"
-    state: started
-  loop: "{{ plakar_fact_klosets_to_create }}"
-
-- name: Activer les minuteurs de Plakar
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    enabled: true
-    state: started
-  loop:
-    - plakar-backup.timer
-    - plakar-check.timer
-
+# Avant la création : un Kloset distant a besoin de son greffon.
 - name: Connecter le compte à plakar.io et installer les greffons
   become: true
   become_user: "{{ plakar_user }}"
@@ -437,3 +441,30 @@
         __plakar_plugins_installed.stdout_lines
         | select('match', (item.name | regex_escape) ~ '@')
         | list | length == 0
+
+- name: Créer chaque Kloset absent
+  ansible.builtin.systemd_service:
+    name: "plakar-create@{{ item }}.service"
+    state: started
+  loop: "{{ plakar_fact_klosets_to_create }}"
+
+# Un Kloset distant n'a pas de CONFIG sur la machine : ce fichier vide note qu'il existe.
+- name: Marquer les Klosets distants créés
+  ansible.builtin.file:
+    path: "/etc/credstore/{{ item }}.created"
+    state: touch
+    owner: root
+    group: root
+    mode: "0600"
+    modification_time: preserve
+    access_time: preserve
+  loop: "{{ plakar_fact_klosets | selectattr('location', 'defined') | map(attribute='name') | list }}"
+
+- name: Activer les minuteurs de Plakar
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - plakar-backup.timer
+    - plakar-check.timer

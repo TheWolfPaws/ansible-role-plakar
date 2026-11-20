@@ -7,4 +7,5 @@ Type=oneshot
 User={{ plakar_user }}
 Group={{ plakar_group }}
 LoadCredential=kloset.key:/etc/credstore/%i.key
+ExecCondition=/bin/sh -c '! plakar -keyfile %d/kloset.key at @%i info >/dev/null'
 ExecStart=plakar -keyfile %d/kloset.key at @%i create
